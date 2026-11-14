@@ -187,7 +187,49 @@ def test_agent_survives_bad_tool_calls():
 
 def test_every_state_changing_tool_requires_confirmation():
     needs = {n for n, t in load_all().items() if t.confirm}
-    assert needs == {"apply_organize_plan", "undo_last_organize", "start_defender_quick_scan"}
+    assert needs == {"apply_organize_plan", "undo_last_organize", "start_defender_quick_scan",
+                     "end_process", "clean_temp_files"}
+
+
+def test_end_process_closes_only_the_named_program():
+    import subprocess, sys
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        import psutil
+        name = psutil.Process(child.pid).name()
+        with pytest.raises(ValueError):
+            diagnostics.end_process(child.pid, "something-else.exe")
+        assert child.poll() is None
+        assert diagnostics.end_process(child.pid, name)["ended"]
+        assert child.wait(timeout=5) is not None
+        assert not diagnostics.end_process(child.pid, name)["ended"]
+    finally:
+        child.kill()
+
+
+def test_end_process_refuses_baku_itself():
+    import os, psutil
+    with pytest.raises(ValueError):
+        diagnostics.end_process(os.getpid(), psutil.Process().name())
+
+
+def test_clean_folder_only_removes_old_files(tmp_path):
+    import os, time
+    old, new = tmp_path / "old.tmp", tmp_path / "sub" / "new.tmp"
+    new.parent.mkdir()
+    old.write_bytes(b"0" * 2 * 1024 * 1024)
+    new.write_text("fresh")
+    os.utime(old, (time.time() - 10 * 86400,) * 2)
+    result = diagnostics.clean_folder(str(tmp_path), older_than_days=7)
+    assert (result["deleted_files"], result["freed_mb"]) == (1, 2)
+    assert not old.exists() and new.exists()
+
+
+def test_recommendations_are_read_only_and_point_at_real_tools():
+    tools = load_all()
+    for rec in diagnostics.health_recommendations():
+        assert rec["problem"] and rec["recommendation"]
+        assert rec["fix_tool"] is None or tools[rec["fix_tool"]].confirm
 
 
 def test_new_health_tools():

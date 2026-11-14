@@ -23,7 +23,7 @@ MB = 1024**2
 @tool("Snapshot of CPU, memory, disk space, uptime and the heaviest running programs. Read-only.")
 def system_health() -> dict:
     psutil.cpu_percent(interval=None)
-    procs = list(psutil.process_iter(["name", "memory_info"]))
+    procs = list(psutil.process_iter(["pid", "name", "memory_info"]))
     for p in procs:
         try:
             p.cpu_percent(interval=None)
@@ -34,6 +34,7 @@ def system_health() -> dict:
     for p in procs:
         try:
             rows.append({
+                "pid": p.info["pid"],
                 "name": p.info["name"],
                 "ram_mb": round(p.info["memory_info"].rss / MB),
                 "cpu_percent": round(p.cpu_percent(interval=None) / psutil.cpu_count(), 1),
@@ -234,3 +235,121 @@ def gpu_status() -> dict:
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip() or "nvidia-smi failed")
     return {"has_nvidia_gpu": True, "gpus": parse_gpu_csv(out.stdout)}
+
+
+# --- Fixes: each one changes the machine, so each needs the owner's yes ----------
+
+PROTECTED_PROCESSES = {
+    "system", "system idle process", "registry", "memory compression", "secure system",
+    "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe",
+    "svchost.exe", "dwm.exe", "explorer.exe", "fontdrvhost.exe", "msmpeng.exe",
+    "init", "systemd", "launchd",
+}
+
+
+@tool(
+    "Close one running program to free memory or CPU. Unsaved work in it is lost. "
+    "Use the pid and name exactly as system_health reported them.",
+    {"pid": {"type": "integer"}, "name": {"type": "string"}},
+    ["pid", "name"],
+    confirm=True,
+)
+def end_process(pid: int, name: str) -> dict:
+    pid = int(pid)
+    try:
+        proc = psutil.Process(pid)
+        actual = proc.name()
+    except psutil.NoSuchProcess:
+        return {"ended": False, "reason": "That program is no longer running."}
+    if actual.lower() != name.lower():
+        raise ValueError(f"Process {pid} is {actual!r}, not {name!r}; run system_health again.")
+    me = psutil.Process()
+    if actual.lower() in PROTECTED_PROCESSES or pid in {me.pid, *(p.pid for p in me.parents())}:
+        raise ValueError(f"{actual} is needed by Windows or by Baku and will not be closed.")
+    freed = proc.memory_info().rss
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except psutil.TimeoutExpired:
+        return {"ended": False, "reason": f"{actual} did not close when asked."}
+    return {"ended": True, "name": actual, "freed_mb": round(freed / MB)}
+
+
+def clean_folder(root: str, older_than_days: float) -> dict:
+    """Delete files under root not modified for older_than_days. Files in use are skipped."""
+    cutoff = time.time() - older_than_days * 86400
+    deleted = freed = skipped = 0
+    for dirpath, _dirs, names in os.walk(root, onerror=lambda e: None):
+        for name in names:
+            full = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(full)
+                if st.st_mtime >= cutoff:
+                    continue
+                os.remove(full)
+                deleted += 1
+                freed += st.st_size
+            except OSError:
+                skipped += 1
+    return {"folder": root, "deleted_files": deleted, "freed_mb": round(freed / MB),
+            "skipped_in_use": skipped}
+
+
+@tool(
+    "Permanently delete temporary files that have not been touched for a while. "
+    "Only the system temp folder is cleaned, never personal files.",
+    {"older_than_days": {"type": "number", "description": "Default 7, minimum 1"}},
+    confirm=True,
+)
+def clean_temp_files(older_than_days: float = 7) -> dict:
+    return clean_folder(tempfile.gettempdir(), max(float(older_than_days), 1))
+
+
+@tool(
+    "Run the health checks and list problems found, each with a recommended fix. "
+    "Read-only: it changes nothing. Offer the fixes to the owner and act only if they agree."
+)
+def health_recommendations() -> list[dict]:
+    health = system_health()
+    found = []
+    if health["ram_used_percent"] >= 85:
+        top = health["top_by_ram"][0]
+        found.append({
+            "problem": f"Memory is {health['ram_used_percent']}% full.",
+            "recommendation": f"Close {top['name']} ({top['ram_mb']} MB) if it is not needed.",
+            "fix_tool": "end_process", "fix_args": {"pid": top["pid"], "name": top["name"]},
+        })
+    for p in health["top_by_cpu"]:
+        if p["cpu_percent"] >= 50:
+            found.append({
+                "problem": f"{p['name']} is using {p['cpu_percent']}% of the processor.",
+                "recommendation": "Close it if it is stuck or not needed.",
+                "fix_tool": "end_process", "fix_args": {"pid": p["pid"], "name": p["name"]},
+            })
+    temp = temp_files_size()
+    if temp["size_mb"] >= 1024:
+        found.append({
+            "problem": f"Temporary files take up {temp['size_mb']} MB.",
+            "recommendation": "Delete temporary files older than a week.",
+            "fix_tool": "clean_temp_files", "fix_args": {"older_than_days": 7},
+        })
+    for d in health["disks"]:
+        if d["percent_used"] >= 90:
+            found.append({
+                "problem": f"{d['drive']} is {d['percent_used']}% full ({d['free_gb']} GB free).",
+                "recommendation": "Look for large files to move or remove; use find_large_files.",
+                "fix_tool": None,
+            })
+    if health["uptime_hours"] >= 24 * 7:
+        found.append({
+            "problem": f"The PC has been on for {round(health['uptime_hours'] / 24)} days.",
+            "recommendation": "Restart it; the owner does this themselves.",
+            "fix_tool": None,
+        })
+    battery = battery_status()
+    if battery.get("has_battery") and not battery["plugged_in"] and battery["percent"] <= 15:
+        found.append({
+            "problem": f"Battery is at {battery['percent']}%.",
+            "recommendation": "Plug in the charger.", "fix_tool": None,
+        })
+    return found

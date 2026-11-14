@@ -60,8 +60,10 @@ Override with environment variables:
 
 ## Safety rules built into the tools
 
-- Baku cannot delete files. Organizing only moves them, never overwrites, and the last
-  run can be undone.
+- Baku reports first, then recommends, and changes something only when the user opts in.
+- Baku never deletes personal files. Organizing only moves them, never overwrites, and the
+  last run can be undone. The one thing it can delete, with approval, is old temporary files.
+- Baku can close a program with approval, but refuses to close ones Windows needs.
 - Organizing is two steps: a plan that touches nothing, then an apply the user must approve.
 - Shortcuts (`.lnk`) and system files are left where they are.
 - Anything that changes the machine asks for a yes first.
