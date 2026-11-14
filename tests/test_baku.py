@@ -188,3 +188,18 @@ def test_agent_survives_bad_tool_calls():
 def test_every_state_changing_tool_requires_confirmation():
     needs = {n for n, t in load_all().items() if t.confirm}
     assert needs == {"apply_organize_plan", "undo_last_organize", "start_defender_quick_scan"}
+
+
+def test_new_health_tools():
+    assert "has_battery" in diagnostics.battery_status()
+    net = diagnostics.network_usage(seconds=0.2)
+    assert net["sample_seconds"] == 0.2 and isinstance(net["adapters"], list)
+    assert "has_nvidia_gpu" in diagnostics.gpu_status()
+
+
+def test_parse_gpu_csv_handles_unsupported_readings():
+    text = "NVIDIA GeForce RTX 5060 Laptop GPU, 61, 34, 48.20, [N/A], 3120, 8151\n"
+    assert diagnostics.parse_gpu_csv(text) == [{
+        "name": "NVIDIA GeForce RTX 5060 Laptop GPU", "temperature_c": 61.0, "load_percent": 34.0,
+        "power_watts": 48.2, "fan_percent": None, "vram_used_mb": 3120.0, "vram_total_mb": 8151.0,
+    }]

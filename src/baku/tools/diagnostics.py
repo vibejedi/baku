@@ -152,3 +152,85 @@ def defender_threats() -> list[dict]:
 def start_defender_quick_scan() -> dict:
     _powershell("Start-MpScan -ScanType QuickScan", timeout=1800)
     return {"scan": "quick", "status": "finished", "next": "Call defender_threats to see results."}
+
+
+@tool("Battery charge, whether it is plugged in, and estimated time left. Read-only.")
+def battery_status() -> dict:
+    b = psutil.sensors_battery()
+    if b is None:
+        return {"has_battery": False}
+    known = b.secsleft not in (psutil.POWER_TIME_UNLIMITED, psutil.POWER_TIME_UNKNOWN)
+    return {
+        "has_battery": True,
+        "percent": round(b.percent),
+        "plugged_in": bool(b.power_plugged),
+        "minutes_left": round(b.secsleft / 60) if known and not b.power_plugged else None,
+    }
+
+
+@tool(
+    "Current network speed per adapter, measured over a short sample, plus totals since boot. Read-only.",
+    {"seconds": {"type": "number", "description": "Sample length, default 2"}},
+)
+def network_usage(seconds: float = 2) -> dict:
+    seconds = min(max(float(seconds), 0.2), 10)
+    before = psutil.net_io_counters(pernic=True)
+    time.sleep(seconds)
+    after = psutil.net_io_counters(pernic=True)
+    adapters = []
+    for name, now in after.items():
+        was = before.get(name)
+        if was is None or (now.bytes_sent == 0 and now.bytes_recv == 0):
+            continue
+        adapters.append({
+            "adapter": name,
+            "download_kbps": round((now.bytes_recv - was.bytes_recv) * 8 / 1000 / seconds, 1),
+            "upload_kbps": round((now.bytes_sent - was.bytes_sent) * 8 / 1000 / seconds, 1),
+            "downloaded_gb_since_boot": round(now.bytes_recv / GB, 2),
+            "uploaded_gb_since_boot": round(now.bytes_sent / GB, 2),
+        })
+    adapters.sort(key=lambda a: a["download_kbps"] + a["upload_kbps"], reverse=True)
+    return {"sample_seconds": seconds, "adapters": adapters}
+
+
+GPU_FIELDS = ["name", "temperature.gpu", "utilization.gpu", "power.draw", "fan.speed",
+              "memory.used", "memory.total"]
+
+
+def parse_gpu_csv(text: str) -> list[dict]:
+    """Parse `nvidia-smi --format=csv,noheader,nounits`; unsupported readings become None."""
+    def num(value: str):
+        try:
+            return float(value)
+        except ValueError:
+            return None  # laptops often report "[N/A]" for fan speed and power
+    gpus = []
+    for line in text.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != len(GPU_FIELDS):
+            continue
+        gpus.append({
+            "name": parts[0],
+            "temperature_c": num(parts[1]),
+            "load_percent": num(parts[2]),
+            "power_watts": num(parts[3]),
+            "fan_percent": num(parts[4]),
+            "vram_used_mb": num(parts[5]),
+            "vram_total_mb": num(parts[6]),
+        })
+    return gpus
+
+
+@tool("NVIDIA graphics card temperature, load, power draw, fan and memory. Read-only.")
+def gpu_status() -> dict:
+    import shutil
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return {"has_nvidia_gpu": False}
+    out = subprocess.run(
+        [exe, f"--query-gpu={','.join(GPU_FIELDS)}", "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or "nvidia-smi failed")
+    return {"has_nvidia_gpu": True, "gpus": parse_gpu_csv(out.stdout)}
