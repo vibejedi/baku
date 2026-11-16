@@ -13,9 +13,9 @@ Everything runs on the device. The language model is served locally by
 
 ## Status
 
-Version 0.1 is the core: the agent loop, the tools and a terminal chat. Not built yet:
-the desktop app (window, mascot), image generation on the GPU tier, and background
-reminder notifications.
+Version 0.1 has the agent loop, the tools, a terminal chat and a desktop app with a chat
+window and a live PC health panel. Not built yet: the 3D mascot, image generation on the
+GPU tier, and background reminder notifications.
 
 ## Setup (Windows)
 
@@ -33,11 +33,20 @@ reminder notifications.
    baku doctor
    ```
 
-4. Chat:
+4. Open the app (use `baku` alone for the terminal chat):
 
    ```bash
-   baku
+   baku app
    ```
+
+The app runs in your browser by default. For a standalone window, install the extra with
+`pip install -e ".[app]"`.
+
+### Packaged build
+
+Every push builds `Baku.exe` on Windows through GitHub Actions (the "Windows build"
+workflow). Download the `Baku-windows` artifact from the latest run and double-click it; no
+Python needed. Ollama is still required for the chat; the PC health panel works without it.
 
 ## Hardware tiers
 

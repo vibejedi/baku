@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from typing import Callable
 
@@ -31,9 +32,11 @@ MAX_STEPS = 8
 
 
 class Agent:
-    def __init__(self, llm, confirm: Callable[[Tool, dict], bool], tools: dict[str, Tool] | None = None):
+    def __init__(self, llm, confirm: Callable[[Tool, dict], bool], tools: dict[str, Tool] | None = None,
+                 on_tool: Callable[[str, dict], None] | None = None):
         self.llm = llm
         self.confirm = confirm
+        self.on_tool = on_tool
         self.tools = tools if tools is not None else load_all()
         self.messages: list[dict] = []
 
@@ -45,6 +48,8 @@ class Agent:
         tool = self.tools.get(name)
         if tool is None:
             return json.dumps({"error": f"No such tool: {name}"})
+        if self.on_tool:
+            self.on_tool(name, args)
         if tool.confirm and not self.confirm(tool, args):
             return json.dumps({"error": "The owner declined this action."})
         try:
@@ -60,7 +65,8 @@ class Agent:
             self.messages.append(reply)
             calls = reply.get("tool_calls") or []
             if not calls:
-                return reply.get("content", "")
+                # some local models leak their reasoning inline; the owner should not see it
+                return re.sub(r"<think>.*?</think>", "", reply.get("content", ""), flags=re.S).strip()
             for call in calls:
                 fn = call["function"]
                 args = fn.get("arguments") or {}

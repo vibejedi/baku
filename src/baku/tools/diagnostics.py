@@ -48,6 +48,8 @@ def system_health() -> dict:
             u = psutil.disk_usage(part.mountpoint)
         except OSError:
             continue
+        if u.total < GB:  # skip empty card readers and tiny system mounts
+            continue
         disks.append({
             "drive": part.mountpoint,
             "free_gb": round(u.free / GB, 1),

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baku</title>
+<style>
+  :root {
+    --bg: #061014; --panel: #0b1a20; --panel-2: #10262e; --line: #1b3a45;
+    --text: #e3f4f6; --muted: #8fb1b8; --teal: #2fe0d6; --mint: #9ff0d2;
+    --warn: #ffc857; --bad: #ff7a7a; --ok: #6ee7a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+         display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line);
+           background: var(--panel-2); border-radius: 10px; padding: 8px 14px; }
+  button:hover:not(:disabled) { border-color: var(--teal); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--teal); border-color: var(--teal); color: #042024; font-weight: 600; }
+
+  main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  header img { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--teal); }
+  header h1 { font-size: 18px; margin: 0; }
+  header small { color: var(--muted); display: block; }
+  header .spacer { flex: 1; }
+
+  #banner { display: none; margin: 14px 20px 0; padding: 12px 14px; border-radius: 10px;
+            border: 1px solid var(--warn); background: #2a2210; }
+  #banner code { background: #0006; padding: 2px 6px; border-radius: 6px; user-select: all; }
+
+  #log { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 10px 14px; border-radius: 14px; white-space: pre-wrap;
+         overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: #14505a; border-bottom-right-radius: 4px; }
+  .msg.baku { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line);
+              border-bottom-left-radius: 4px; }
+  .msg.error { align-self: flex-start; background: #3a1414; border: 1px solid var(--bad); }
+  .note { align-self: flex-start; color: var(--muted); font-size: 13px; padding-left: 4px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 420px; }
+  .empty img { width: 120px; border-radius: 50%; border: 3px solid var(--teal); margin-bottom: 8px; }
+
+  #confirm { display: none; margin: 0 20px 12px; padding: 14px; border-radius: 12px;
+             border: 1px solid var(--warn); background: #2a2210; }
+  #confirm h3 { margin: 0 0 4px; font-size: 15px; }
+  #confirm pre { margin: 8px 0; padding: 8px 10px; background: #0006; border-radius: 8px;
+                 white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+  #confirm .row { display: flex; gap: 8px; }
+
+  #chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 10px; }
+  #chips button { font-size: 13px; padding: 6px 12px; border-radius: 999px; }
+  form { display: flex; gap: 10px; padding: 12px 20px 18px; border-top: 1px solid var(--line);
+         background: var(--panel); }
+  #text { flex: 1; resize: none; height: 46px; padding: 11px 14px; border-radius: 12px; font: inherit;
+          color: var(--text); background: var(--bg); border: 1px solid var(--line); }
+  #text:focus { outline: none; border-color: var(--teal); }
+
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto;
+          height: 100vh; padding: 16px; }
+  aside h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+             margin: 18px 0 8px; display: flex; align-items: center; }
+  aside h2:first-child { margin-top: 0; }
+  aside h2 button { margin-left: auto; font-size: 12px; padding: 3px 10px; text-transform: none;
+                    letter-spacing: 0; }
+  .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+          padding: 10px 12px; margin-bottom: 8px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; }
+  .kv span:first-child { color: var(--muted); }
+  .bar { height: 6px; border-radius: 3px; background: #0006; margin-top: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--teal); }
+  .bar i.warn { background: var(--warn); } .bar i.bad { background: var(--bad); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .rec { border-color: var(--warn); }
+  .rec p { margin: 0 0 6px; }
+  .rec .do { color: var(--muted); font-size: 13px; }
+  .rec button { font-size: 13px; padding: 5px 10px; margin-top: 4px; }
+  .proc { font-size: 13px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  @media (max-width: 860px) {
+    body { grid-template-columns: 1fr; }
+    main { height: auto; min-height: 100vh; }
+    aside { height: auto; border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/baku.png" alt="">
+    <div><h1>Baku</h1><small id="sub">Starting up…</small></div>
+    <div class="spacer"></div>
+    <button id="reset" title="Start a new conversation">New chat</button>
+  </header>
+  <div id="banner"></div>
+  <div id="log">
+    <div class="empty" id="empty">
+      <img src="/baku.png" alt="">
+      <div>Hi, I'm Baku. I live on this PC and nothing you tell me leaves it.<br>
+      Ask me to tidy a folder, track your spending, set a reminder, or check this PC's health.</div>
+    </div>
+  </div>
+  <div id="confirm">
+    <h3>Baku is asking permission</h3>
+    <pre id="confirm-args"></pre>
+    <div class="row">
+      <button class="primary" id="allow">Allow</button>
+      <button id="deny">Don't allow</button>
+    </div>
+  </div>
+  <div id="chips">
+    <button>Check my PC's health and recommend fixes</button>
+    <button>What's taking up space in my Downloads folder?</button>
+    <button>Tidy my Desktop</button>
+    <button>What reminders do I have?</button>
+    <button>How much did I spend this month?</button>
+  </div>
+  <form id="form">
+    <textarea id="text" placeholder="Ask Baku something…" autofocus></textarea>
+    <button class="primary" id="send">Send</button>
+  </form>
+</main>
+
+<aside>
+  <h2>Setup</h2>
+  <div class="card" id="status"><span class="muted">Checking…</span></div>
+  <h2>PC health <button id="refresh">Refresh</button></h2>
+  <div id="health"><div class="card muted">Checking…</div></div>
+  <h2>Recommendations</h2>
+  <div id="recs"><div class="card muted">Checking…</div></div>
+  <h2>Heaviest programs</h2>
+  <div id="procs"><div class="card muted">Checking…</div></div>
+</aside>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = id => document.getElementById(id);
+const api = (path, body) => fetch(path, {
+  method: body ? "POST" : "GET",
+  headers: {"X-Baku-Token": TOKEN, "Content-Type": "application/json"},
+  body: body ? JSON.stringify(body) : undefined,
+}).then(r => r.json());
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// ---- chat -------------------------------------------------------------------
+let seen = 0, busy = false, pendingId = null, polling = false, ready = false;
+const TOOL_NOTES = {
+  system_health: "checking this PC's health", health_recommendations: "looking for problems",
+  scan_folder: "looking at that folder", plan_organize: "drafting a tidy-up plan",
+  apply_organize_plan: "moving files", undo_last_organize: "putting files back",
+  find_large_files: "looking for large files", temp_files_size: "measuring temporary files",
+  clean_temp_files: "clearing temporary files", end_process: "closing a program",
+  battery_status: "checking the battery", network_usage: "measuring network speed",
+  gpu_status: "checking the graphics card", list_startup_programs: "listing startup programs",
+  defender_status: "checking Microsoft Defender", defender_threats: "checking for threats",
+  start_defender_quick_scan: "running a virus scan", add_reminder: "saving a reminder",
+  list_reminders: "checking reminders", complete_reminder: "ticking off a reminder",
+  add_transaction: "recording that", monthly_summary: "adding up the month",
+};
+
+function show(m) {
+  $("empty")?.remove();
+  const log = $("log");
+  if (m.role === "tool") log.append(el("div", "note", "Baku is " + (TOOL_NOTES[m.text] || m.text) + "…"));
+  else log.append(el("div", "msg " + m.role, m.text));
+  log.scrollTop = log.scrollHeight;
+}
+
+function setBusy(b) {
+  busy = b;
+  $("send").disabled = b || !ready;
+  $("send").textContent = b ? "Thinking…" : "Send";
+  document.querySelectorAll("#chips button").forEach(c => c.disabled = b || !ready);
+}
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  try {
+    do {
+      const s = await api("/api/state?since=" + seen);
+      s.messages.forEach(show);
+      seen = s.total;
+      setBusy(s.busy);
+      const p = s.pending;
+      if (p && p.id !== pendingId) {
+        pendingId = p.id;
+        $("confirm-args").textContent = p.summary;
+        $("confirm").style.display = "block";
+        $("allow").disabled = $("deny").disabled = false;
+      } else if (!p) { pendingId = null; $("confirm").style.display = "none"; }
+      if (s.busy) await new Promise(r => setTimeout(r, 400));
+    } while (busy);
+  } finally { polling = false; }
+}
+
+async function send(text) {
+  text = text.trim();
+  if (!text || busy || !ready) return;
+  $("text").value = "";
+  setBusy(true);
+  await api("/api/chat", {text});
+  poll();
+}
+
+async function decide(allow) {
+  $("allow").disabled = $("deny").disabled = true;
+  await api("/api/confirm", {id: pendingId, allow});
+}
+
+$("form").addEventListener("submit", e => { e.preventDefault(); send($("text").value); });
+$("text").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send($("text").value); }
+});
+$("chips").addEventListener("click", e => { if (e.target.tagName === "BUTTON") send(e.target.textContent); });
+$("allow").onclick = () => decide(true);
+$("deny").onclick = () => decide(false);
+$("reset").onclick = async () => {
+  const r = await api("/api/reset", {});
+  if (r.ok) { seen = 0; $("log").replaceChildren(); }
+};
+
+// ---- setup status -----------------------------------------------------------
+function kv(k, v) { const d = el("div", "kv"); d.append(el("span", "", k), el("span", "", v)); return d; }
+function dotLine(ok, text) {
+  const d = el("div"); d.append(el("span", "dot " + (ok ? "ok" : "bad")), document.createTextNode(text)); return d;
+}
+
+async function loadStatus() {
+  const s = await api("/api/status");
+  ready = s.ollama_running && s.model_installed;
+  $("sub").textContent = ready ? "Ready · running on this PC" : "Not ready yet · see setup";
+  const card = $("status"); card.replaceChildren(
+    dotLine(s.ollama_running, s.ollama_running ? "Ollama is running" : "Ollama is not running"),
+    dotLine(s.model_installed, s.model_installed ? "Model is installed" : "Model is not installed"),
+    kv("Model", s.model),
+    kv("Tier", s.tier === "gpu" ? "Graphics card" : "Processor only"),
+    kv("Memory", s.ram_gb + " GB"),
+    kv("Graphics memory", s.gpu_vram_mb ? Math.round(s.gpu_vram_mb / 1024) + " GB" : "none found"),
+    kv("Baku version", s.version));
+  const b = $("banner");
+  if (ready) b.style.display = "none";
+  else {
+    b.style.display = "block";
+    b.replaceChildren();
+    if (!s.ollama_running) {
+      b.append("Baku needs Ollama to think. Install it from ollama.com, start it, and this page will notice. " +
+               "The PC health panel works without it.");
+    } else {
+      b.append("One more step: download Baku's model. Open a terminal and run ");
+      b.append(el("code", "", "ollama pull " + s.model));
+      b.append(" — this page will notice when it finishes.");
+    }
+  }
+  setBusy(busy);
+  if (!ready) setTimeout(loadStatus, 5000);
+}
+
+// ---- health panel -----------------------------------------------------------
+function meter(label, percent, detail) {
+  const c = el("div", "card");
+  c.append(kv(label, detail));
+  const bar = el("div", "bar"), fill = el("i", percent >= 90 ? "bad" : percent >= 75 ? "warn" : "");
+  fill.style.width = Math.min(Math.max(percent, 0), 100) + "%";
+  bar.append(fill); c.append(bar);
+  return c;
+}
+
+async function loadHealth() {
+  $("refresh").disabled = true;
+  try {
+    const d = await api("/api/health");
+    const h = d.health, box = $("health"); box.replaceChildren();
+    if (h.error) box.append(el("div", "card", h.error));
+    else {
+      box.append(meter("Processor", h.cpu_percent, h.cpu_percent + "%"));
+      box.append(meter("Memory", h.ram_used_percent, h.ram_used_percent + "% of " + h.ram_total_gb + " GB"));
+      h.disks.forEach(k => box.append(meter("Drive " + k.drive, k.percent_used, k.free_gb + " GB free")));
+      const b = d.battery;
+      if (b && b.has_battery) box.append(meter("Battery", 100 - b.percent,
+        b.percent + "%" + (b.plugged_in ? " · charging" : b.minutes_left ? " · " + b.minutes_left + " min left" : "")));
+      (d.gpu && d.gpu.gpus || []).forEach(g => {
+        const c = el("div", "card");
+        c.append(kv("Graphics card", g.name.replace("NVIDIA ", "")));
+        if (g.temperature_c != null) c.append(kv("Temperature", g.temperature_c + " °C"));
+        if (g.power_watts != null) c.append(kv("Power", g.power_watts + " W"));
+        if (g.fan_percent != null) c.append(kv("Fan", g.fan_percent + "%"));
+        if (g.vram_total_mb) c.append(kv("Memory", Math.round(g.vram_used_mb) + " / " + Math.round(g.vram_total_mb) + " MB"));
+        box.append(c);
+      });
+      const up = el("div", "card"); up.append(kv("On for", h.uptime_hours + " hours")); box.append(up);
+
+      const procs = $("procs"); procs.replaceChildren();
+      const c = el("div", "card proc");
+      h.top_by_ram.forEach(p => c.append(kv(p.name, p.ram_mb + " MB")));
+      procs.append(c);
+    }
+    const recs = $("recs"); recs.replaceChildren();
+    const list = Array.isArray(d.recommendations) ? d.recommendations : [];
+    if (!list.length) recs.append(el("div", "card muted", "Nothing needs attention right now."));
+    list.forEach(r => {
+      const c = el("div", "card rec");
+      c.append(el("p", "", r.problem), el("div", "do", r.recommendation));
+      if (r.fix_tool) {
+        const b = el("button", "", "Ask Baku to fix this");
+        b.onclick = () => send("You found this problem: " + r.problem + " Please fix it: " + r.recommendation);
+        c.append(b);
+      }
+      recs.append(c);
+    });
+  } catch (e) {
+    $("health").replaceChildren(el("div", "card", "Could not read PC health."));
+  } finally { $("refresh").disabled = false; }
+}
+
+$("refresh").onclick = loadHealth;
+loadStatus(); loadHealth(); poll();
+setInterval(loadHealth, 30000);
+</script>
+</body>
+</html>

@@ -146,3 +146,14 @@ def undo_last_organize() -> dict:
             pass
     journal.unlink()
     return {"restored": restored, "could_not_restore": failed}
+
+
+def describe_plan(plan_id: str) -> str:
+    """Plain-language summary of a saved plan, shown to the owner before they approve it."""
+    plan_file = _plans_dir() / f"{Path(plan_id).name}.json"
+    if not plan_file.exists():
+        return "This plan no longer exists."
+    plan = json.loads(plan_file.read_text())
+    lines = [f"{Path(m['from']).name}  ->  {Path(m['to']).parent.name}" for m in plan["moves"]]
+    more = [f"...and {len(lines) - 12} more"] if len(lines) > 12 else []
+    return "\n".join([f"Move {len(lines)} files inside {plan['folder']}:", *lines[:12], *more])

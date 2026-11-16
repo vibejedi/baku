@@ -11,12 +11,16 @@ dependencies = ["psutil>=5.9"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+app = ["pywebview>=5"]
 
 [project.scripts]
 baku = "baku.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+baku = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

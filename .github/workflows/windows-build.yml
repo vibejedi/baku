@@ -1,0 +1,27 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main, claude/optimistic-allen-6nxo7l]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]" pyinstaller
+      - name: Test on Windows
+        run: pytest -q
+      - name: Build Baku.exe
+        run: pyinstaller --noconfirm --onefile --name Baku --paths src --add-data "src/baku/web;baku/web" packaging/baku_app.py
+      - name: Check the packaged app starts
+        run: dist\Baku.exe app --smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Baku-windows
+          path: dist/Baku.exe

@@ -66,8 +66,14 @@ def chat() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="baku", description="Baku, your local sea-serpent assistant.")
-    parser.add_argument("command", nargs="?", default="chat", choices=["chat", "doctor"])
+    parser.add_argument("command", nargs="?", default="chat", choices=["chat", "doctor", "app"])
+    parser.add_argument("--port", type=int, default=8765, help="app: local port to use")
+    parser.add_argument("--no-window", action="store_true", help="app: open in the browser instead")
+    parser.add_argument("--smoke", action="store_true", help="app: start, self-check and exit")
     args = parser.parse_args(argv)
+    if args.command == "app":
+        from .server import run_app, smoke_test
+        return smoke_test() if args.smoke else run_app(args.port, window=not args.no_window)
     return doctor() if args.command == "doctor" else chat()
 
 

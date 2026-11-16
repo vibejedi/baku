@@ -245,3 +245,107 @@ def test_parse_gpu_csv_handles_unsupported_readings():
         "name": "NVIDIA GeForce RTX 5060 Laptop GPU", "temperature_c": 61.0, "load_percent": 34.0,
         "power_watts": 48.2, "fan_percent": None, "vram_used_mb": 3120.0, "vram_total_mb": 8151.0,
     }]
+
+
+# --- app server -------------------------------------------------------------
+
+import time
+import urllib.error
+import urllib.request
+
+from baku import server
+
+
+class AppClient:
+    def __init__(self, llm):
+        self.session = server.Session(llm=llm)
+        self.http, self.url, self.token = server.start_server(0, self.session)
+
+    def call(self, path, body=None, token=None, host=None):
+        headers = {"X-Baku-Token": self.token if token is None else token}
+        if host:
+            headers["Host"] = host
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.url + path, data=data, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def wait(self, test, seconds=5):
+        end = time.time() + seconds
+        while time.time() < end:
+            state = self.call("api/state?since=0")[1]
+            if test(state):
+                return state
+            time.sleep(0.05)
+        raise AssertionError(f"timed out; last state: {state}")
+
+
+@pytest.fixture
+def app():
+    clients = []
+
+    def make(replies):
+        clients.append(AppClient(FakeLLM(replies)))
+        return clients[-1]
+    yield make
+    for c in clients:
+        c.http.shutdown()
+
+
+def test_app_serves_page_and_rejects_outsiders(app):
+    c = app([])
+    page = urllib.request.urlopen(c.url, timeout=10).read().decode()
+    assert "Baku" in page and c.token in page
+    assert c.call("api/status")[0] == 200
+    assert c.call("api/status", token="wrong")[0] == 403
+    assert c.call("api/chat", {"text": "hi"}, token="wrong")[0] == 403
+    assert c.call("api/status", host="evil.example")[0] == 403  # another site pointed at localhost
+
+
+def test_app_chat_round_trip(app, desktop):
+    c = app([call("scan_folder", path=str(desktop)),
+             {"role": "assistant", "content": "<think>hmm</think>5 files!"}])
+    assert c.call("api/chat", {"text": "what's on my desktop?"})[0] == 200
+    state = c.wait(lambda s: not s["busy"] and s["total"] >= 3)
+    assert [(m["role"], m["text"]) for m in state["messages"]] == [
+        ("user", "what's on my desktop?"), ("tool", "scan_folder"), ("baku", "5 files!")]
+    assert c.call("api/chat", {"text": ""})[0] == 400
+
+
+@pytest.mark.parametrize("allow", [True, False])
+def test_app_changes_wait_for_the_owner(app, desktop, allow):
+    plan = files.plan_organize(str(desktop))
+    c = app([call("apply_organize_plan", plan_id=plan["plan_id"]),
+             {"role": "assistant", "content": "done"}])
+    c.call("api/chat", {"text": "tidy up"})
+    pending = c.wait(lambda s: s["pending"])["pending"]
+    assert pending["tool"] == "apply_organize_plan"
+    assert "Move 5 files" in pending["summary"] and "report.pdf  ->  Documents" in pending["summary"]
+    assert (desktop / "report.pdf").exists()  # nothing moved while waiting
+    assert c.call("api/chat", {"text": "second"})[0] == 409  # one turn at a time
+    assert c.call("api/confirm", {"id": "wrong", "allow": True})[0] == 409
+    assert c.call("api/confirm", {"id": pending["id"], "allow": allow})[0] == 200
+    c.wait(lambda s: not s["busy"])
+    assert (desktop / "Documents" / "report.pdf").exists() == allow
+
+
+def test_app_reports_model_failures(app):
+    class Broken:
+        def chat(self, messages, tools=None):
+            raise server.LLMError("Ollama is not running")
+    c = AppClient(Broken())
+    try:
+        c.call("api/chat", {"text": "hi"})
+        state = c.wait(lambda s: not s["busy"] and s["total"] == 2)
+        assert state["messages"][1]["role"] == "error"
+    finally:
+        c.http.shutdown()
+
+
+def test_app_health_snapshot_and_smoke():
+    snap = server.health_snapshot()
+    assert "error" not in snap["health"] and isinstance(snap["recommendations"], list)
+    assert server.smoke_test() == 0
